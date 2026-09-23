@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WiFi Access</title>
+<style>
+  :root {
+    --brand: #1a7f4e;
+    --brand-dark: #145f3a;
+    --bg: #f4f6f5;
+    --card: #ffffff;
+    --text: #1c2622;
+    --muted: #6b7871;
+    --danger: #c0392b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px 60px;
+  }
+  .wrap { width: 100%; max-width: 420px; }
+  h1 { font-size: 22px; margin: 8px 0 4px; text-align: center; }
+  .subtitle { text-align: center; color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+
+  .packages { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+  .package {
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    transition: border-color 0.15s ease;
+  }
+  .package.selected { border-color: var(--brand); }
+  .package .name { font-weight: 600; font-size: 15px; }
+  .package .duration { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .package .price { font-weight: 700; font-size: 16px; color: var(--brand-dark); white-space: nowrap; }
+
+  label { font-size: 13px; color: var(--muted); display: block; margin: 0 0 6px; }
+  input[type="tel"] {
+    width: 100%;
+    padding: 13px 14px;
+    border-radius: 10px;
+    border: 1px solid #d7ddda;
+    font-size: 16px;
+    margin-bottom: 16px;
+  }
+  button {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 10px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { background: #a9b6ae; cursor: not-allowed; }
+
+  .card {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 16px;
+  }
+
+  .status-box { text-align: center; }
+  .spinner {
+    width: 34px; height: 34px;
+    border: 3px solid #d7ddda;
+    border-top-color: var(--brand);
+    border-radius: 50%;
+    margin: 4px auto 14px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status-title { font-weight: 600; margin-bottom: 4px; }
+  .status-sub { color: var(--muted); font-size: 14px; }
+
+  .error-box {
+    background: #fdecea;
+    border: 1px solid #f5c6c0;
+    color: var(--danger);
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+
+  .voucher-code {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-align: center;
+    color: var(--brand-dark);
+    margin: 6px 0 2px;
+  }
+
+  .hidden { display: none !important; }
+  .back-link {
+    display: block;
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Get Connected</h1>
+  <p class="subtitle">Choose a plan and pay with M-Pesa</p>
+
+  <div id="errorBox" class="error-box hidden"></div>
+
+  <!-- STEP 1: package + phone -->
+  <div id="stepSelect">
+    <div id="packages" class="packages">
+      <p class="subtitle">Loading plans…</p>
+    </div>
+
+    <label for="phone">M-Pesa phone number</label>
+    <input type="tel" id="phone" inputmode="numeric" placeholder="07XXXXXXXX" />
+    <p id="welcomeNote" class="subtitle hidden" style="margin-top:-10px;"></p>
+
+    <button id="buyBtn" disabled>Select a plan</button>
+  </div>
+
+  <!-- STEP 2: waiting for payment -->
+  <div id="stepWaiting" class="hidden">
+    <div class="card status-box">
+      <div class="spinner"></div>
+      <div class="status-title">Check your phone</div>
+      <div class="status-sub">Enter your M-Pesa PIN on the prompt to complete payment.</div>
+    </div>
+    <span class="back-link" id="cancelWait">Cancel and start over</span>
+  </div>
+
+  <!-- STEP 3: connected -->
+  <div id="stepDone" class="hidden">
+    <div class="card status-box">
+      <div class="status-title">Payment received 🎉</div>
+      <div class="voucher-code" id="voucherCodeDisplay"></div>
+      <div class="status-sub">Connecting you now…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden form MikroTik uses to actually authenticate the hotspot session.
+     $(link-login-only) and $(link-orig) are substituted server-side by RouterOS
+     when it serves this file from the hotspot html directory. -->
+<form name="autoLoginForm" action="$(link-login-only)" method="post" class="hidden">
+  <input type="hidden" name="dst" value="$(link-orig)" />
+  <input type="hidden" name="popup" value="true" />
+  <input type="text" name="username" id="mtUsername" />
+  <input type="password" name="password" id="mtPassword" />
+</form>
+
+<script>
+  // ---- CONFIGURE THIS ----
+  // Public URL of your billing backend (from Step 3 of the README).
+  // Must also be added to the router's hotspot walled-garden so unauthenticated
+  // devices can reach it. See README "Walled garden" section.
+  const API_BASE = "https://your-billing-domain.example.com";
+  // ------------------------
+
+  let selectedPackage = null;
+  let pollTimer = null;
+  let pollAttempts = 0;
+  const MAX_POLL_ATTEMPTS = 40; // ~2 minutes at 3s interval
+
+  const el = (id) => document.getElementById(id);
+
+  function showError(msg) {
+    el('errorBox').textContent = msg;
+    el('errorBox').classList.remove('hidden');
+  }
+  function clearError() {
+    el('errorBox').classList.add('hidden');
+  }
+  function showStep(step) {
+    el('stepSelect').classList.toggle('hidden', step !== 'select');
+    el('stepWaiting').classList.toggle('hidden', step !== 'waiting');
+    el('stepDone').classList.toggle('hidden', step !== 'done');
+  }
+
+  async function loadPackages() {
+    try {
+      const res = await fetch(`${API_BASE}/api/vouchers/packages`);
+      const packages = await res.json();
+      const container = el('packages');
+      container.innerHTML = '';
+
+      packages.forEach((pkg) => {
+        const div = document.createElement('div');
+        div.className = 'package';
+        div.dataset.id = pkg.id;
+        div.innerHTML = `
+          <div>
+            <div class="name">${pkg.name}</div>
+            <div class="duration">${pkg.limitUptime ? 'Valid ' + pkg.limitUptime : ''}</div>
+          </div>
+          <div class="price">KES ${pkg.priceKes}</div>
+        `;
+        div.addEventListener('click', () => selectPackage(pkg, div));
+        container.appendChild(div);
+      });
+    } catch (err) {
+      el('packages').innerHTML = '';
+      showError('Could not load plans. Please refresh the page.');
+    }
+  }
+
+  function selectPackage(pkg, node) {
+    selectedPackage = pkg;
+    document.querySelectorAll('.package').forEach((n) => n.classList.remove('selected'));
+    node.classList.add('selected');
+    updateBuyButton();
+  }
+
+  function updateBuyButton() {
+    const btn = el('buyBtn');
+    const phoneOk = /^0[71]\d{8}$/.test(el('phone').value.trim());
+    if (selectedPackage && phoneOk) {
+      btn.disabled = false;
+      btn.textContent = `Pay KES ${selectedPackage.priceKes} with M-Pesa`;
+    } else if (selectedPackage) {
+      btn.disabled = true;
+      btn.textContent = 'Enter a valid phone number';
+    } else {
+      btn.disabled = true;
+      btn.textContent = 'Select a plan';
+    }
+  }
+
+  el('phone').addEventListener('input', updateBuyButton);
+  el('phone').addEventListener('blur', () => {
+    const phone = el('phone').value.trim();
+    if (/^0[71]\d{8}$/.test(phone)) checkHistory(phone);
+  });
+
+  async function checkHistory(phone) {
+    const note = el('welcomeNote');
+    try {
+      const res = await fetch(`${API_BASE}/api/vouchers/history/${encodeURIComponent(phone)}`);
+      const data = await res.json();
+
+      if (!data.hasPurchasedBefore) {
+        note.classList.add('hidden');
+        return;
+      }
+
+      note.textContent = data.lastVoucherExpired
+        ? 'Welcome back! Your previous plan has expired — pick a new one below.'
+        : 'Welcome back!';
+      note.classList.remove('hidden');
+    } catch (err) {
+      // Non-critical — don't block the purchase flow if this lookup fails.
+      note.classList.add('hidden');
+    }
+  }
+
+  el('buyBtn').addEventListener('click', async () => {
+    clearError();
+    el('buyBtn').disabled = true;
+    el('buyBtn').textContent = 'Sending request…';
+
+    try {
+      const res = await fetch(`${API_BASE}/api/vouchers/purchase`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: el('phone').value.trim(),
+          packageId: selectedPackage.id,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        showError(data.error || 'Payment could not be started. Please try again.');
+        updateBuyButton();
+        return;
+      }
+
+      showStep('waiting');
+      pollAttempts = 0;
+      pollStatus(data.checkoutRequestId);
+    } catch (err) {
+      showError('Network error. Please try again.');
+      updateBuyButton();
+    }
+  });
+
+  function pollStatus(checkoutRequestId) {
+    pollTimer = setInterval(async () => {
+      pollAttempts++;
+      if (pollAttempts > MAX_POLL_ATTEMPTS) {
+        clearInterval(pollTimer);
+        showStep('select');
+        showError('Payment timed out. If money was deducted, contact support with your phone number.');
+        updateBuyButton();
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/api/vouchers/status/${checkoutRequestId}`);
+        const data = await res.json();
+
+        if (data.status === 'provisioned' && data.voucherCode) {
+          clearInterval(pollTimer);
+          connectWithVoucher(data.voucherCode, data.voucherPassword);
+        } else if (data.status === 'failed') {
+          clearInterval(pollTimer);
+          showStep('select');
+          showError(data.failureReason || 'Payment failed or was cancelled. Please try again.');
+          updateBuyButton();
+        }
+        // 'pending' / 'paid' -> keep polling
+      } catch (err) {
+        // transient network hiccup while polling; keep trying until MAX_POLL_ATTEMPTS
+      }
+    }, 3000);
+  }
+
+  function connectWithVoucher(code, password) {
+    el('voucherCodeDisplay').textContent = code;
+    showStep('done');
+
+    el('mtUsername').value = code;
+    el('mtPassword').value = password || '';
+
+    // Give the customer a moment to see their code before we redirect them
+    // into the authenticated session.
+    setTimeout(() => {
+      document.forms['autoLoginForm'].submit();
+    }, 1800);
+  }
+
+  el('cancelWait').addEventListener('click', () => {
+    clearInterval(pollTimer);
+    showStep('select');
+    updateBuyButton();
+  });
+
+  loadPackages();
+</script>
+</body>
+</html>
